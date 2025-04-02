@@ -5,9 +5,10 @@ from transformers import AutoTokenizer, DistilBertForSequenceClassification
 import PyPDF2
 from io import BytesIO
 import os
+import json
 
 # --------- Load Models and Labels ---------
-MODEL_PATH = "fine_tuned_distilbert"
+MODEL_PATH = "quantized_fine_tuned_distilbert"  # Path to the quantized model
 LABELS_PATH = "labels.json"
 
 # Check if the model directory exists
@@ -18,10 +19,10 @@ else:
 
 # Load the DistilBERT tokenizer and model
 try:
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+    tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
     model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
     model.eval()
-    st.success("Model loaded successfully!")
+    st.success("Quantized model loaded successfully!")
 except Exception as e:
     st.error(f"Error loading model: {e}")
 
