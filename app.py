@@ -4,20 +4,34 @@ import torch
 from transformers import AutoTokenizer, DistilBertForSequenceClassification
 import PyPDF2
 from io import BytesIO
-import json
+import os
 
 # --------- Load Models and Labels ---------
-MODEL_PATH = "distilbert-base-uncased"
+MODEL_PATH = "fine_tuned_distilbert"
 LABELS_PATH = "labels.json"
 
+# Check if the model directory exists
+if not os.path.exists(MODEL_PATH):
+    st.error(f"Model directory not found at: {MODEL_PATH}")
+else:
+    st.success("Model directory found!")
+
 # Load the DistilBERT tokenizer and model
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-model = DistilBertForSequenceClassification.from_pretrained("path_to_your_finetuned_model")
-model.eval()
+try:
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+    model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
+    model.eval()
+    st.success("Model loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading model: {e}")
 
 # Load the labels
-with open(LABELS_PATH, "r") as f:
-    labels = json.load(f)
+try:
+    with open(LABELS_PATH, "r") as f:
+        labels = json.load(f)
+    st.success("Labels loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading labels: {e}")
 
 # Function to extract text from a PDF file
 def extract_text_from_pdf(pdf_file):
