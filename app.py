@@ -1,29 +1,23 @@
 # streamlit_app.py
 import streamlit as st
-import pandas as pd
-import pickle
-from sklearn.feature_extraction.text import TfidfVectorizer
+import torch
+from transformers import AutoTokenizer, DistilBertForSequenceClassification
 import PyPDF2
 from io import BytesIO
+import json
 
-# Load the Logistic Regression model and TF-IDF vectorizer
-MODEL_PATH = "logistic_regression_model.pkl"
-VECTORIZER_PATH = "tfidf_vectorizer.pkl"
+# --------- Load Models and Labels ---------
+MODEL_PATH = "distilbert-base-uncased"
+LABELS_PATH = "labels.json"
 
-# Load the model and vectorizer
-try:
-    with open(MODEL_PATH, "rb") as f:
-        clf = pickle.load(f)
-    st.success("Model loaded successfully!")
-except Exception as e:
-    st.error(f"Error loading model: {e}")
+# Load the DistilBERT tokenizer and model
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model = DistilBertForSequenceClassification.from_pretrained("path_to_your_finetuned_model")
+model.eval()
 
-try:
-    with open(VECTORIZER_PATH, "rb") as f:
-        vectorizer = pickle.load(f)
-    st.success("Vectorizer loaded successfully!")
-except Exception as e:
-    st.error(f"Error loading vectorizer: {e}")
+# Load the labels
+with open(LABELS_PATH, "r") as f:
+    labels = json.load(f)
 
 # Function to extract text from a PDF file
 def extract_text_from_pdf(pdf_file):
@@ -33,11 +27,18 @@ def extract_text_from_pdf(pdf_file):
         text += page.extract_text()
     return text
 
-# Function to predict using Logistic Regression
-def predict_with_logistic(text):
-    text_tfidf = vectorizer.transform([text])
-    pred = clf.predict(text_tfidf)
-    return pred[0]
+# Function to preprocess text for DistilBERT
+def preprocess_text_bert(text):
+    tokens = tokenizer(text, padding="max_length", truncation=True, max_length=512, return_tensors="pt")
+    return tokens
+
+# Function to predict using DistilBERT
+def predict_with_bert(text):
+    inputs = preprocess_text_bert(text)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        preds = torch.argmax(outputs.logits, dim=1)
+    return labels[preds.item()]
 
 # Streamlit App
 st.title("Resume Classification App")
@@ -46,8 +47,6 @@ st.title("Resume Classification App")
 uploaded_file = st.file_uploader("Upload your resume (PDF format):", type=["pdf"])
 
 if uploaded_file is not None:
-    st.success("File uploaded successfully!")
-    
     # Extract text from the uploaded PDF
     resume_text = extract_text_from_pdf(uploaded_file)
 
@@ -61,7 +60,7 @@ if uploaded_file is not None:
         # Prediction button
         if st.button("Predict"):
             st.info("Processing...")
-            prediction = predict_with_logistic(resume_text)
+            prediction = predict_with_bert(resume_text)
             st.success(f"Predicted Category: **{prediction}**")
 else:
     st.warning("Please upload a PDF file to proceed.")
