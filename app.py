@@ -2,22 +2,13 @@
 import streamlit as st
 import pandas as pd
 import pickle
-import os
+from sklearn.feature_extraction.text import TfidfVectorizer
+import PyPDF2
+from io import BytesIO
 
-# Paths to model and vectorizer
+# Load the Logistic Regression model and TF-IDF vectorizer
 MODEL_PATH = "logistic_regression_model.pkl"
 VECTORIZER_PATH = "tfidf_vectorizer.pkl"
-
-# Check if files exist
-if not os.path.exists(MODEL_PATH):
-    st.error(f"Model file not found at: {MODEL_PATH}")
-else:
-    st.success("Model file found!")
-
-if not os.path.exists(VECTORIZER_PATH):
-    st.error(f"Vectorizer file not found at: {VECTORIZER_PATH}")
-else:
-    st.success("Vectorizer file found!")
 
 # Load the model and vectorizer
 try:
@@ -34,6 +25,14 @@ try:
 except Exception as e:
     st.error(f"Error loading vectorizer: {e}")
 
+# Function to extract text from a PDF file
+def extract_text_from_pdf(pdf_file):
+    pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_file.read()))
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
 # Function to predict using Logistic Regression
 def predict_with_logistic(text):
     text_tfidf = vectorizer.transform([text])
@@ -43,17 +42,29 @@ def predict_with_logistic(text):
 # Streamlit App
 st.title("Resume Classification App")
 
-# Text input for resume
-resume_text = st.text_area("Paste your resume text here:", height=300)
+# File uploader for PDF
+uploaded_file = st.file_uploader("Upload your resume (PDF format):", type=["pdf"])
 
-# Prediction button
-if st.button("Predict"):
+if uploaded_file is not None:
+    st.success("File uploaded successfully!")
+    
+    # Extract text from the uploaded PDF
+    resume_text = extract_text_from_pdf(uploaded_file)
+
     if resume_text.strip() == "":
-        st.error("Please enter some text in the resume box.")
+        st.error("The uploaded PDF does not contain any text. Please upload a valid PDF.")
     else:
-        st.info("Processing...")
-        prediction = predict_with_logistic(resume_text)
-        st.success(f"Predicted Category: **{prediction}**")
+        st.success("Text extracted successfully!")
+        st.write("**Extracted Text:**")
+        st.write(resume_text[:500] + "...")  # Show only the first 500 characters for brevity
+        
+        # Prediction button
+        if st.button("Predict"):
+            st.info("Processing...")
+            prediction = predict_with_logistic(resume_text)
+            st.success(f"Predicted Category: **{prediction}**")
+else:
+    st.warning("Please upload a PDF file to proceed.")
 
 # Footer
 st.markdown("---")
