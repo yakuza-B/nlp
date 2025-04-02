@@ -8,7 +8,7 @@ import os
 import json
 
 # --------- Load Models and Labels ---------
-MODEL_PATH = "quantized_fine_tuned_distilbert"  # Path to the quantized model
+MODEL_PATH = "quantized_fine_tuned_distilbert"
 LABELS_PATH = "labels.json"
 
 # Check if the model directory exists
@@ -22,7 +22,7 @@ try:
     tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
     model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
     model.eval()
-    st.success("Quantized model loaded successfully!")
+    st.success("Model loaded successfully!")
 except Exception as e:
     st.error(f"Error loading model: {e}")
 
@@ -51,7 +51,7 @@ def preprocess_text_bert(text):
 def predict_with_bert(text):
     inputs = preprocess_text_bert(text)
     with torch.no_grad():
-        outputs = model(**inputs)
+        outputs = model(**inputs)  # Use the global model variable
         preds = torch.argmax(outputs.logits, dim=1)
     return labels[preds.item()]
 
