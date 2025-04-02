@@ -2,67 +2,58 @@
 import streamlit as st
 import pandas as pd
 import pickle
-from sklearn.feature_extraction.text import TfidfVectorizer
-import PyPDF2
-from io import BytesIO
+import os
 
-# Load the Logistic Regression model and TF-IDF vectorizer
+# Paths to model and vectorizer
 MODEL_PATH = "logistic_regression_model.pkl"
 VECTORIZER_PATH = "tfidf_vectorizer.pkl"
 
+# Check if files exist
+if not os.path.exists(MODEL_PATH):
+    st.error(f"Model file not found at: {MODEL_PATH}")
+else:
+    st.success("Model file found!")
+
+if not os.path.exists(VECTORIZER_PATH):
+    st.error(f"Vectorizer file not found at: {VECTORIZER_PATH}")
+else:
+    st.success("Vectorizer file found!")
+
 # Load the model and vectorizer
-with open(MODEL_PATH, "rb") as f:
-    clf = pickle.load(f)
+try:
+    with open(MODEL_PATH, "rb") as f:
+        clf = pickle.load(f)
+    st.success("Model loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading model: {e}")
 
-with open(VECTORIZER_PATH, "rb") as f:
-    vectorizer = pickle.load(f)
-
-# Function to extract text from a PDF file
-def extract_text_from_pdf(pdf_file):
-    pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_file.read()))
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
+try:
+    with open(VECTORIZER_PATH, "rb") as f:
+        vectorizer = pickle.load(f)
+    st.success("Vectorizer loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading vectorizer: {e}")
 
 # Function to predict using Logistic Regression
 def predict_with_logistic(text):
-    # Debugging: Print the extracted text
-    st.write("**Extracted Text:**")
-    st.write(text[:500] + "...")  # Show only the first 500 characters for brevity
-
-    # Transform text into TF-IDF features
     text_tfidf = vectorizer.transform([text])
-    
-    # Debugging: Check the shape of the TF-IDF vector
-    st.write(f"**TF-IDF Vector Shape:** {text_tfidf.shape}")
-    
-    # Predict the category
     pred = clf.predict(text_tfidf)
     return pred[0]
 
 # Streamlit App
 st.title("Resume Classification App")
 
-# File uploader for PDF
-uploaded_file = st.file_uploader("Upload your resume (PDF format):", type=["pdf"])
+# Text input for resume
+resume_text = st.text_area("Paste your resume text here:", height=300)
 
-if uploaded_file is not None:
-    # Extract text from the uploaded PDF
-    resume_text = extract_text_from_pdf(uploaded_file)
-
+# Prediction button
+if st.button("Predict"):
     if resume_text.strip() == "":
-        st.error("The uploaded PDF does not contain any text. Please upload a valid PDF.")
+        st.error("Please enter some text in the resume box.")
     else:
-        st.info("Text successfully extracted from the PDF!")
-        
-        # Prediction button
-        if st.button("Predict"):
-            st.info("Processing...")
-            prediction = predict_with_logistic(resume_text)
-            st.success(f"Predicted Category: **{prediction}**")
-else:
-    st.warning("Please upload a PDF file to proceed.")
+        st.info("Processing...")
+        prediction = predict_with_logistic(resume_text)
+        st.success(f"Predicted Category: **{prediction}**")
 
 # Footer
 st.markdown("---")
