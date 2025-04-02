@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 import pickle
 from sklearn.feature_extraction.text import TfidfVectorizer
+import PyPDF2
+from io import BytesIO
 
 # Load the Logistic Regression model and TF-IDF vectorizer
 MODEL_PATH = "logistic_regression_model.pkl"
@@ -15,6 +17,14 @@ with open(MODEL_PATH, "rb") as f:
 with open(VECTORIZER_PATH, "rb") as f:
     vectorizer = pickle.load(f)
 
+# Function to extract text from a PDF file
+def extract_text_from_pdf(pdf_file):
+    pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_file.read()))
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
 # Function to predict using Logistic Regression
 def predict_with_logistic(text):
     text_tfidf = vectorizer.transform([text])
@@ -24,18 +34,24 @@ def predict_with_logistic(text):
 # Streamlit App
 st.title("Resume Classification App")
 
-# Text input for resume
-resume_text = st.text_area("Paste your resume text here:", height=300)
+# File uploader for PDF
+uploaded_file = st.file_uploader("Upload your resume (PDF format):", type=["pdf"])
 
 # Prediction button
-if st.button("Predict"):
-    if resume_text.strip() == "":
-        st.error("Please enter some text in the resume box.")
-    else:
-        st.info("Processing...")
-        prediction = predict_with_logistic(resume_text)
-        st.success(f"Predicted Category: **{prediction}**")
+if uploaded_file is not None:
+    if st.button("Predict"):
+        # Extract text from the uploaded PDF
+        resume_text = extract_text_from_pdf(uploaded_file)
+        
+        if resume_text.strip() == "":
+            st.error("The uploaded PDF does not contain any text.")
+        else:
+            st.info("Processing...")
+            prediction = predict_with_logistic(resume_text)
+            st.success(f"Predicted Category: **{prediction}**")
+else:
+    st.warning("Please upload a PDF file to proceed.")
 
 # Footer
-st.sidebar.markdown("---")
-st.sidebar.markdown("Developed by [Your Name]")
+st.markdown("---")
+st.markdown("Developed by [Your Name]")
