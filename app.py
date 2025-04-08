@@ -40,7 +40,7 @@ def clean_text(text):
 def train_model():
     """Train the model when first needed"""
     # Load your dataset (replace with your actual path)
-    df = pd.read_csv("Resume.csv")
+    df = pd.read_csv(r"C:\Users\barry\Documents\NLP resume\Resume/Resume.csv")
     
     # Prepare data
     X = df["Resume_str"]
