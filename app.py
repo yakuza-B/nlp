@@ -1,57 +1,99 @@
 import streamlit as st
-from transformers import AutoTokenizer, DistilBertForSequenceClassification
-import torch
-from PyPDF2 import PdfReader
-import os
-import json
+import pandas as pd
+import pdfplumber
+import re
+from io import BytesIO
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+import numpy as np
 
-# Load the saved model, tokenizer, and labels
-MODEL_PATH = "./resume_classifier_model"
-tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
+# Configure Streamlit page
+st.set_page_config(
+    page_title="Resume Classifier",
+    page_icon="📄",
+    layout="centered"
+)
 
-# Load the labels
-with open(f"{MODEL_PATH}/labels.json", "r") as f:
-    LABELS = json.load(f)
+# App title and description
+st.title("📄 Resume Category Predictor")
+st.markdown("""
+Upload your resume in PDF format to predict its job category.
+This model analyzes your resume text and matches it with common job categories.
+""")
 
-# Function to extract text from PDF
-def extract_text_from_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    return text
+# PDF text extraction
+def extract_text(uploaded_file):
+    """Extract text from PDF files"""
+    with pdfplumber.open(BytesIO(uploaded_file.read())) as pdf:
+        return " ".join(page.extract_text() for page in pdf.pages if page.extract_text())
 
-# Function to classify resume
-def classify_resume(text):
-    inputs = tokenizer(text, padding=True, truncation=True, max_length=512, return_tensors="pt")
-    with torch.no_grad():
-        outputs = model(**inputs)
-    predicted_class = torch.argmax(outputs.logits, dim=1).item()
-    return LABELS[predicted_class]
+# Text cleaning
+def clean_text(text):
+    """Basic text preprocessing"""
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text)  # Remove URLs
+    text = re.sub(r'\S+@\S+', '', text)  # Remove emails
+    text = re.sub(r'[^\w\s]', ' ', text)  # Remove special chars
+    return ' '.join(text.split())  # Remove extra whitespace
 
-# Streamlit app
-st.title("Resume Classifier")
-st.write("Upload a PDF resume and get its category prediction.")
-
-# File uploader
-uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
-
-if uploaded_file is not None:
-    # Display the uploaded file name
-    st.write(f"Uploaded file: {uploaded_file.name}")
+# Model training function
+@st.cache_resource  # Cache the trained model
+def train_model():
+    """Train the model when first needed"""
+    # Load your dataset (replace with your actual path)
+    df = pd.read_csv("Resume.csv")
     
-    # Extract text from the PDF
-    resume_text = extract_text_from_pdf(uploaded_file)
+    # Prepare data
+    X = df["Resume_str"]
+    y = df["Category"]
     
-    if resume_text.strip() == "":
-        st.error("Failed to extract text from the uploaded PDF. Please try another file.")
-    else:
-        # Classify the resume
-        with st.spinner("Classifying the resume..."):
-            category = classify_resume(resume_text)
-        
-        # Display the result
-        st.success(f"Predicted Category: **{category}**")
-else:
-    st.info("Please upload a PDF file to proceed.")
+    # Vectorize text
+    vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
+    X_tfidf = vectorizer.fit_transform(X)
+    
+    # Train classifier
+    model = LogisticRegression(max_iter=1000)
+    model.fit(X_tfidf, y)
+    
+    return model, vectorizer, y.unique()
+
+# Main app function
+def main():
+    # File upload section
+    uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
+    
+    if uploaded_file:
+        with st.spinner("Analyzing your resume..."):
+            try:
+                # Train or load model
+                model, vectorizer, categories = train_model()
+                
+                # Process PDF
+                raw_text = extract_text(uploaded_file)
+                cleaned_text = clean_text(raw_text)
+                
+                # Make prediction
+                features = vectorizer.transform([cleaned_text])
+                prediction = model.predict(features)[0]
+                probabilities = model.predict_proba(features)[0]
+                
+                # Display results
+                st.success(f"**Predicted Category:** {prediction}")
+                
+                # Show confidence scores
+                st.subheader("Category Probabilities")
+                prob_df = pd.DataFrame({
+                    "Category": categories,
+                    "Confidence": probabilities
+                }).sort_values("Confidence", ascending=False)
+                
+                st.dataframe(prob_df.style.format({"Confidence": "{:.2%}"}))
+                
+                # Show processed text (collapsible)
+                with st.expander("View processed text"):
+                    st.text(cleaned_text[:1500] + "...")  # Show first 1500 chars
+                    
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+
+if __name__ == "__main__":
+    main()
