@@ -2,8 +2,6 @@ import streamlit as st
 import joblib
 import pdfplumber
 import re
-import base64
-import pandas as pd
 from io import BytesIO
 
 # Load small model files
@@ -25,52 +23,50 @@ def show_pdf_preview(file_bytes):
         first_page = pdf.pages[0]
         
         # Display preview image
-        st.image(first_page.to_image().original, caption="First Page Preview", width=300)
+        st.image(first_page.to_image().original, 
+                caption="First Page Preview", 
+                use_column_width=True)
         
         # Display first few lines of text
         preview_text = first_page.extract_text() or "No text found on first page"
-        with st.expander("Show text preview"):
-            st.text(preview_text[:500] + ("..." if len(preview_text) > 500 else ""))
+        st.text_area("Text Preview", 
+                    value=preview_text[:300] + ("..." if len(preview_text) > 300 else ""),
+                    height=150)
 
-st.title("📄 Resume Classifier")
-uploaded_file = st.file_uploader("Upload PDF", type="pdf")
+# Configure page
+st.set_page_config(page_title="Resume Classifier", layout="centered")
+st.title("📄 Resume Category Classifier")
+st.write("Upload your resume PDF to predict its job category")
+
+# File uploader
+uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
 if uploaded_file:
-    # Read file bytes once and store in memory
+    # Read file bytes once
     file_bytes = uploaded_file.read()
     
-    col1, col2 = st.columns([1, 2])
+    # Create two columns
+    col1, col2 = st.columns([1, 1], gap="large")
     
     with col1:
         st.subheader("Resume Preview")
         show_pdf_preview(file_bytes)
     
     with col2:
-        st.subheader("Classification Results")
-        model, vectorizer, categories = load_models()
-        
-        # Process full document
-        with st.spinner("Analyzing resume..."):
+        st.subheader("Analysis Results")
+        with st.spinner("Analyzing resume content..."):
             try:
+                model, vectorizer, categories = load_models()
                 text = extract_text(file_bytes)
                 text_clean = re.sub(r'[^\w\s]', ' ', text)
                 
                 prediction = model.predict(vectorizer.transform([text_clean]))[0]
-                st.success(f"**Predicted Category:** {prediction}")
                 
-                # Show confidence scores if available
-                if hasattr(model, "predict_proba"):
-                    probabilities = model.predict_proba(vectorizer.transform([text_clean]))[0]
-                    prob_df = pd.DataFrame({
-                        "Category": categories,
-                        "Confidence": probabilities
-                    }).sort_values("Confidence", ascending=False)
-                    
-                    st.dataframe(prob_df.style.format({"Confidence": "{:.2%}"}))
+                # Display prediction with nice styling
+                st.markdown(f"""
+                **Predicted Category:**  
+                <span style="font-size: 24px; color: #2e86de">{prediction}</span>
+                """, unsafe_allow_html=True)
                 
-                # Show full processed text (collapsible)
-                with st.expander("View full processed text"):
-                    st.text(text_clean[:2000] + ("..." if len(text_clean) > 2000 else ""))
-                    
             except Exception as e:
                 st.error(f"Error processing file: {str(e)}")
