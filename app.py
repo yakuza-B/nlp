@@ -3,19 +3,16 @@ from transformers import AutoTokenizer, DistilBertForSequenceClassification
 import torch
 from PyPDF2 import PdfReader
 import os
+import json
 
-# Load the saved model and tokenizer
+# Load the saved model, tokenizer, and labels
 MODEL_PATH = "./resume_classifier_model"
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
 
-# Categories (labels) for classification
-LABELS = [
-    "BPO", "HR", "PUBLIC-RELATIONS", "CONSULTANT", "BANKING", "SALES", "ACCOUNTANT",
-    "FINANCE", "BUSINESS-DEVELOPMENT", "AUTOMOBILE", "AVIATION", "ENGINEERING",
-    "INFORMATION-TECHNOLOGY", "AGRICULTURE", "DIGITAL-MEDIA", "APPAREL", "TEACHER",
-    "ARTS", "DESIGNER", "CONSTRUCTION", "HEALTHCARE", "FITNESS", "CHEF", "ADVOCATE"
-]
+# Load the labels
+with open(f"{MODEL_PATH}/labels.json", "r") as f:
+    LABELS = json.load(f)
 
 # Function to extract text from PDF
 def extract_text_from_pdf(file):
