@@ -1,85 +1,125 @@
-# streamlit_app.py
 import streamlit as st
-import torch
-from transformers import AutoTokenizer, DistilBertForSequenceClassification
-import PyPDF2
+import pandas as pd
+import joblib
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+import pdfplumber
+import re
 from io import BytesIO
-import os
-import json
+import numpy as np
 
-# --------- Load Models and Labels ---------
-MODEL_PATH = "quantized_fine_tuned_distilbert"
-LABELS_PATH = "labels.json"
+# Set page config
+st.set_page_config(
+    page_title="Resume Classifier",
+    page_icon="📄",
+    layout="wide"
+)
 
-# Check if the model directory exists
-if not os.path.exists(MODEL_PATH):
-    st.error(f"Model directory not found at: {MODEL_PATH}")
-else:
-    st.success("Model directory found!")
+# Title and description
+st.title("📄 Resume Category Classifier")
+st.markdown("""
+Upload your resume in PDF format to predict its job category.
+This model was trained on resume data across multiple industries.
+""")
 
-# Load the DistilBERT tokenizer and model
-try:
-    tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-    model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
-    model.eval()
-    st.success("Model loaded successfully!")
-except Exception as e:
-    st.error(f"Error loading model: {e}")
-
-# Load the labels
-try:
-    with open(LABELS_PATH, "r") as f:
-        labels = json.load(f)
-    st.success("Labels loaded successfully!")
-except Exception as e:
-    st.error(f"Error loading labels: {e}")
-
-# Function to extract text from a PDF file
-def extract_text_from_pdf(pdf_file):
-    pdf_reader = PyPDF2.PdfReader(BytesIO(pdf_file.read()))
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
+# PDF processing function
+def extract_text_from_pdf(uploaded_file):
+    """Extract text from uploaded PDF file"""
+    with pdfplumber.open(BytesIO(uploaded_file.read())) as pdf:
+        text = " ".join(page.extract_text() for page in pdf.pages if page.extract_text())
     return text
 
-# Function to preprocess text for DistilBERT
-def preprocess_text_bert(text):
-    tokens = tokenizer(text, padding="max_length", truncation=True, max_length=512, return_tensors="pt")
-    return tokens
+# Text cleaning function
+def clean_resume_text(text):
+    """Basic text cleaning"""
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)  # Remove URLs
+    text = re.sub(r'\S+@\S+', '', text)  # Remove emails
+    text = re.sub(r'[^\w\s]', ' ', text)  # Remove special chars
+    text = re.sub(r'\d+', '', text)  # Remove numbers
+    text = ' '.join(text.split())  # Remove extra whitespace
+    return text
 
-# Function to predict using DistilBERT
-def predict_with_bert(text):
-    inputs = preprocess_text_bert(text)
-    with torch.no_grad():
-        outputs = model(**inputs)  # Use the global model variable
-        preds = torch.argmax(outputs.logits, dim=1)
-    return labels[preds.item()]
+# Model training function (run this locally first)
+def train_model():
+    """Train and save the model (run this locally before deployment)"""
+    df = pd.read_csv("data/Resume.csv")  # Update path as needed
+    
+    # Prepare data
+    X = df["Resume_str"]
+    y = df["Category"]
+    
+    # Vectorize text
+    vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
+    X_tfidf = vectorizer.fit_transform(X)
+    
+    # Train model
+    model = LogisticRegression(max_iter=1000, random_state=42)
+    model.fit(X_tfidf, y)
+    
+    # Save model components
+    joblib.dump(model, "model/resume_model.pkl")
+    joblib.dump(vectorizer, "model/tfidf_vectorizer.pkl")
+    joblib.dump(y.unique(), "model/categories.pkl")
+    
+    print("Model trained and saved successfully!")
 
-# Streamlit App
-st.title("Resume Classification App")
+# Load model components
+@st.cache_resource
+def load_model():
+    """Load trained model components"""
+    try:
+        model = joblib.load("model/resume_model.pkl")
+        vectorizer = joblib.load("model/tfidf_vectorizer.pkl")
+        categories = joblib.load("model/categories.pkl")
+        return model, vectorizer, categories
+    except Exception as e:
+        st.error(f"Error loading model: {str(e)}")
+        st.stop()
 
-# File uploader for PDF
-uploaded_file = st.file_uploader("Upload your resume (PDF format):", type=["pdf"])
-
-if uploaded_file is not None:
-    # Extract text from the uploaded PDF
-    resume_text = extract_text_from_pdf(uploaded_file)
-
-    if resume_text.strip() == "":
-        st.error("The uploaded PDF does not contain any text. Please upload a valid PDF.")
-    else:
-        st.success("Text extracted successfully!")
-        st.write("**Extracted Text:**")
-        st.write(resume_text[:500] + "...")  # Show only the first 500 characters for brevity
+# Main app function
+def main():
+    # File uploader
+    uploaded_file = st.file_uploader("Choose a PDF resume", type="pdf")
+    
+    if uploaded_file:
+        # Load model
+        model, vectorizer, categories = load_model()
         
-        # Prediction button
-        if st.button("Predict"):
-            st.info("Processing...")
-            prediction = predict_with_bert(resume_text)
-            st.success(f"Predicted Category: **{prediction}**")
-else:
-    st.warning("Please upload a PDF file to proceed.")
+        # Process PDF
+        with st.spinner("Processing your resume..."):
+            try:
+                # Extract and clean text
+                raw_text = extract_text_from_pdf(uploaded_file)
+                cleaned_text = clean_resume_text(raw_text)
+                
+                # Vectorize and predict
+                text_tfidf = vectorizer.transform([cleaned_text])
+                prediction = model.predict(text_tfidf)[0]
+                probabilities = model.predict_proba(text_tfidf)[0]
+                
+                # Display results
+                st.success(f"**Predicted Category:** {prediction}")
+                
+                # Show confidence scores
+                st.subheader("Prediction Confidence")
+                prob_df = pd.DataFrame({
+                    "Category": categories,
+                    "Probability": probabilities
+                }).sort_values("Probability", ascending=False)
+                
+                st.dataframe(prob_df.style.format({"Probability": "{:.2%}"}))
+                
+                # Show extracted text (collapsible)
+                with st.expander("View processed text"):
+                    st.text(cleaned_text[:2000] + "...")  # Show first 2000 chars
+                    
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
 
-# Footer
-st.markdown("---")
-st.markdown("Developed by [Your Name]")
+# Run locally first to train model
+if __name__ == "__main__":
+    # Uncomment to train model (run locally first)
+    # train_model()
+    
+    # Run the app
+    main()
