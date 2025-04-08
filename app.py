@@ -1,125 +1,60 @@
 import streamlit as st
-import pandas as pd
-import joblib
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-import pdfplumber
-import re
-from io import BytesIO
-import numpy as np
+from transformers import AutoTokenizer, DistilBertForSequenceClassification
+import torch
+from PyPDF2 import PdfReader
+import os
 
-# Set page config
-st.set_page_config(
-    page_title="Resume Classifier",
-    page_icon="📄",
-    layout="wide"
-)
+# Load the saved model and tokenizer
+MODEL_PATH = "./resume_classifier_model"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+model = DistilBertForSequenceClassification.from_pretrained(MODEL_PATH)
 
-# Title and description
-st.title("📄 Resume Category Classifier")
-st.markdown("""
-Upload your resume in PDF format to predict its job category.
-This model was trained on resume data across multiple industries.
-""")
+# Categories (labels) for classification
+LABELS = [
+    "BPO", "HR", "PUBLIC-RELATIONS", "CONSULTANT", "BANKING", "SALES", "ACCOUNTANT",
+    "FINANCE", "BUSINESS-DEVELOPMENT", "AUTOMOBILE", "AVIATION", "ENGINEERING",
+    "INFORMATION-TECHNOLOGY", "AGRICULTURE", "DIGITAL-MEDIA", "APPAREL", "TEACHER",
+    "ARTS", "DESIGNER", "CONSTRUCTION", "HEALTHCARE", "FITNESS", "CHEF", "ADVOCATE"
+]
 
-# PDF processing function
-def extract_text_from_pdf(uploaded_file):
-    """Extract text from uploaded PDF file"""
-    with pdfplumber.open(BytesIO(uploaded_file.read())) as pdf:
-        text = " ".join(page.extract_text() for page in pdf.pages if page.extract_text())
+# Function to extract text from PDF
+def extract_text_from_pdf(file):
+    reader = PdfReader(file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text()
     return text
 
-# Text cleaning function
-def clean_resume_text(text):
-    """Basic text cleaning"""
-    text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)  # Remove URLs
-    text = re.sub(r'\S+@\S+', '', text)  # Remove emails
-    text = re.sub(r'[^\w\s]', ' ', text)  # Remove special chars
-    text = re.sub(r'\d+', '', text)  # Remove numbers
-    text = ' '.join(text.split())  # Remove extra whitespace
-    return text
+# Function to classify resume
+def classify_resume(text):
+    inputs = tokenizer(text, padding=True, truncation=True, max_length=512, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    predicted_class = torch.argmax(outputs.logits, dim=1).item()
+    return LABELS[predicted_class]
 
-# Model training function (run this locally first)
-def train_model():
-    """Train and save the model (run this locally before deployment)"""
-    df = pd.read_csv("data/Resume.csv")  # Update path as needed
-    
-    # Prepare data
-    X = df["Resume_str"]
-    y = df["Category"]
-    
-    # Vectorize text
-    vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
-    X_tfidf = vectorizer.fit_transform(X)
-    
-    # Train model
-    model = LogisticRegression(max_iter=1000, random_state=42)
-    model.fit(X_tfidf, y)
-    
-    # Save model components
-    joblib.dump(model, "model/resume_model.pkl")
-    joblib.dump(vectorizer, "model/tfidf_vectorizer.pkl")
-    joblib.dump(y.unique(), "model/categories.pkl")
-    
-    print("Model trained and saved successfully!")
+# Streamlit app
+st.title("Resume Classifier")
+st.write("Upload a PDF resume and get its category prediction.")
 
-# Load model components
-@st.cache_resource
-def load_model():
-    """Load trained model components"""
-    try:
-        model = joblib.load("model/resume_model.pkl")
-        vectorizer = joblib.load("model/tfidf_vectorizer.pkl")
-        categories = joblib.load("model/categories.pkl")
-        return model, vectorizer, categories
-    except Exception as e:
-        st.error(f"Error loading model: {str(e)}")
-        st.stop()
+# File uploader
+uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
-# Main app function
-def main():
-    # File uploader
-    uploaded_file = st.file_uploader("Choose a PDF resume", type="pdf")
+if uploaded_file is not None:
+    # Display the uploaded file name
+    st.write(f"Uploaded file: {uploaded_file.name}")
     
-    if uploaded_file:
-        # Load model
-        model, vectorizer, categories = load_model()
+    # Extract text from the PDF
+    resume_text = extract_text_from_pdf(uploaded_file)
+    
+    if resume_text.strip() == "":
+        st.error("Failed to extract text from the uploaded PDF. Please try another file.")
+    else:
+        # Classify the resume
+        with st.spinner("Classifying the resume..."):
+            category = classify_resume(resume_text)
         
-        # Process PDF
-        with st.spinner("Processing your resume..."):
-            try:
-                # Extract and clean text
-                raw_text = extract_text_from_pdf(uploaded_file)
-                cleaned_text = clean_resume_text(raw_text)
-                
-                # Vectorize and predict
-                text_tfidf = vectorizer.transform([cleaned_text])
-                prediction = model.predict(text_tfidf)[0]
-                probabilities = model.predict_proba(text_tfidf)[0]
-                
-                # Display results
-                st.success(f"**Predicted Category:** {prediction}")
-                
-                # Show confidence scores
-                st.subheader("Prediction Confidence")
-                prob_df = pd.DataFrame({
-                    "Category": categories,
-                    "Probability": probabilities
-                }).sort_values("Probability", ascending=False)
-                
-                st.dataframe(prob_df.style.format({"Probability": "{:.2%}"}))
-                
-                # Show extracted text (collapsible)
-                with st.expander("View processed text"):
-                    st.text(cleaned_text[:2000] + "...")  # Show first 2000 chars
-                    
-            except Exception as e:
-                st.error(f"Error processing file: {str(e)}")
-
-# Run locally first to train model
-if __name__ == "__main__":
-    # Uncomment to train model (run locally first)
-    # train_model()
-    
-    # Run the app
-    main()
+        # Display the result
+        st.success(f"Predicted Category: **{category}**")
+else:
+    st.info("Please upload a PDF file to proceed.")
